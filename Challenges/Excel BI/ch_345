@@ -1,0 +1,35 @@
+let
+    // FUNCTIONS
+    f = (tbl) as table => [
+        skip = Table.Skip(tbl),
+        reg = Text.Split(Table.FirstValue(tbl),": "){1},
+        prom = Table.PromoteHeaders(skip, [PromoteAllScalars = true]),
+        unp = Table.UnpivotOtherColumns(prom, {"Category"}, "Ind", "Sum"),
+        add = Table.AddColumn(unp, "Region", each reg),
+        spl = Table.SplitColumn(add, "Ind", Splitter.SplitTextByDelimiter("-"), {"Quarter","Ind"}),
+        out = Table.TransformColumns(spl, {"Quarter", g})
+        ][out],
+    g = (txt) as text => "Q" & Text.From(Date.QuarterOfYear(Date.From(txt & " 2025", "en-US"))),
+
+    // TRANSFORMATION STEPS
+    src = Excel.CurrentWorkbook(){[Name="Table1"]}[Content],
+    cons = Table.Group(src, "Column1", {"A", f}, 0, (x,y)=>Byte.From(Text.StartsWith(y, "Region"))),
+    comb = Table.Combine(cons[A]),
+    gr = Table.Group(comb, {"Region","Quarter"},
+        {"All", each [
+            getTotal = (tbl,ind)=> [
+                fltr = Table.SelectRows(tbl, each Record.Field(_,"Ind")=ind),
+                out = Table.Group(fltr, {"Region","Quarter","Category"}, {"Sum", each List.Sum([Sum])})
+                ][out],
+            Sales = Table.Buffer(getTotal(_, "Sales")),
+            Returns = Table.Buffer(getTotal(_, "Returns")),
+            Total_Sales = List.Sum(Sales[Sum]),
+            Total_Returns = List.Sum(Returns[Sum]),
+            Max_Sold_Item = Text.Combine(Table.SelectRows(Sales, each [Sum]=List.Max(Sales[Sum]))[Category],", "),
+            Max_Returned_Item = Text.Combine(Table.SelectRows(Returns, each [Sum]=List.Max(Returns[Sum]))[Category],", ")
+        ]}),
+    exp = Table.ExpandRecordColumn(gr, "All",
+        {"Total_Sales","Total_Returns","Max_Sold_Item","Max_Returned_Item"}),
+    res = Table.Sort(exp, {"Region",1})
+in 
+    res
